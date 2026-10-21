@@ -1,0 +1,23 @@
+name: capturenest_recorder
+description: Native recorder bridge used by CaptureNest.
+version: 0.1.0
+publish_to: "none"
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.thatsbikublab.capturenest_recorder
+        pluginClass: CaptureNestRecorderPlugin
+      ios:
+        pluginClass: CaptureNestRecorderPlugin
+
+

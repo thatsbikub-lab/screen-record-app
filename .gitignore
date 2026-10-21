@@ -1,0 +1,16 @@
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+.metadata
+.idea/
+.vscode/
+build/
+/android/
+/ios/
+*.iml
+*.ipa
+*.apk
+*.aab
+
+

@@ -1,0 +1,7 @@
+<resources>
+    <string name="capturenest_capture_channel">Screen capture</string>
+    <string name="capturenest_capture_title">CaptureNest is recording</string>
+    <string name="capturenest_capture_description">Your screen recording is being saved privately on this device.</string>
+</resources>
+
+

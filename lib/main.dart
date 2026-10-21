@@ -410,15 +410,15 @@ class _EmptyLibrary extends StatelessWidget {
   const _EmptyLibrary();
 
   @override
-  Widget build(BuildContext context) => Center(
+  Widget build(BuildContext context) => const Center(
         child: Padding(
-          padding: const EdgeInsets.all(38),
-          child: Column(mainAxisSize: MainAxisSize.min, children: const <Widget>[
-            const BrandMark(size: 72),
-            const SizedBox(height: 20),
-            const Text('Your nest is empty', style: TextStyle(fontSize: 23, fontWeight: FontWeight.w800)),
-            const SizedBox(height: 8),
-            const Text('Record your screen and each private capture will appear here.', textAlign: TextAlign.center, style: TextStyle(color: Color(0xff9CB0C9))),
+          padding: EdgeInsets.all(38),
+          child: Column(mainAxisSize: MainAxisSize.min, children: <Widget>[
+            BrandMark(size: 72),
+            SizedBox(height: 20),
+            Text('Your nest is empty', style: TextStyle(fontSize: 23, fontWeight: FontWeight.w800)),
+            SizedBox(height: 8),
+            Text('Record your screen and each private capture will appear here.', textAlign: TextAlign.center, style: TextStyle(color: Color(0xff9CB0C9))),
           ]),
         ),
       );

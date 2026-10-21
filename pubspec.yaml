@@ -1,0 +1,28 @@
+name: capturenest
+description: A private, on-device screen recorder for Android and iOS.
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  path_provider: ^2.1.5
+  share_plus: ^10.1.4
+  shared_preferences: ^2.3.4
+  video_player: ^2.9.2
+  capturenest_recorder:
+    path: packages/capturenest_recorder
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+
+

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:capturenest_recorder/capturenest_recorder.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 
@@ -117,6 +118,16 @@ class _RecorderHomeState extends State<RecorderHome> {
     }
   }
 
+  // iOS only lets a broadcast extension record other apps, so the record button
+  // opens the system broadcast sheet there; the video is saved to Photos.
+  Future<void> _startFullScreen() async {
+    try {
+      await CaptureNestRecorder.startFullScreen();
+    } catch (error) {
+      _showError(error);
+    }
+  }
+
   Future<void> _togglePause() async {
     try {
       if (_isPaused) {
@@ -160,14 +171,22 @@ class _RecorderHomeState extends State<RecorderHome> {
             : 'Recording saved privately on this device.'),
       ));
     } catch (error) {
-      if (mounted) _showError(error);
+      // The native capture is finished either way, so never leave the controls stuck.
+      if (!mounted) return;
+      setState(() {
+        _isRecording = false;
+        _isPaused = false;
+        _elapsed = Duration.zero;
+        _stopwatch = null;
+      });
+      _showError(error);
     }
   }
 
   void _showError(Object error) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(error.toString().replaceFirst('Exception: ', ''))),
+      SnackBar(content: Text(_errorText(error))),
     );
   }
 
@@ -236,7 +255,7 @@ class _RecorderHomeState extends State<RecorderHome> {
         child: Column(children: <Widget>[
           InkWell(
             borderRadius: BorderRadius.circular(100),
-            onTap: active ? null : _start,
+            onTap: active ? null : (Platform.isIOS ? _startFullScreen : _start),
             child: Ink(
               width: 178,
               height: 178,
@@ -258,7 +277,11 @@ class _RecorderHomeState extends State<RecorderHome> {
           Text(label, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 21)),
           const SizedBox(height: 5),
           Text(
-            active ? (_isPaused ? 'Capture paused' : 'Capture is running') : 'Tap once, then approve system capture.',
+            active
+                ? (_isPaused ? 'Capture paused' : 'Capture is running')
+                : Platform.isIOS
+                    ? 'Tap, then Start Broadcast. Stop it with the red bar at the top. Videos are saved to Photos.'
+                    : 'Tap once, then approve system capture.',
             textAlign: TextAlign.center,
             style: const TextStyle(color: Color(0xffA9BDD3)),
           ),
@@ -479,7 +502,7 @@ class _RecordingCard extends StatelessWidget {
         await CaptureNestRecorder.saveToGallery(recording.path);
         if (context.mounted) _message(context, 'Saved to your media library.');
       } catch (error) {
-        if (context.mounted) _message(context, error.toString());
+        if (context.mounted) _message(context, _errorText(error));
       }
       return;
     }
@@ -628,7 +651,7 @@ class _TrimPageState extends State<TrimPage> {
         ),
       );
     } catch (error) {
-      if (mounted) _message(context, error.toString());
+      if (mounted) _message(context, _errorText(error));
     } finally {
       if (mounted) setState(() => _exporting = false);
     }
@@ -686,3 +709,8 @@ void _message(BuildContext context, String text) {
 }
 
 
+
+String _errorText(Object error) {
+  if (error is PlatformException) return error.message ?? error.code;
+  return error.toString().replaceFirst('Exception: ', '');
+}

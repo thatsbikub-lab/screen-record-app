@@ -41,6 +41,11 @@ class CaptureNestRecorder {
     return path;
   }
 
+  /// iOS only: opens the system broadcast sheet to record the whole screen.
+  /// The finished recording is saved to Photos by the broadcast extension.
+  static Future<void> startFullScreen() =>
+      _channel.invokeMethod<void>('startFullScreen');
+
   static Future<void> pause() => _channel.invokeMethod<void>('pause');
 
   static Future<void> resume() => _channel.invokeMethod<void>('resume');

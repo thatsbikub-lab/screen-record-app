@@ -38,6 +38,8 @@ if [[ "$platforms" == *"ios"* ]]; then
   rm -f ios/Podfile.bak
   sed -E -i.bak 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]+/IPHONEOS_DEPLOYMENT_TARGET = 15.0/g' ios/Runner.xcodeproj/project.pbxproj
   rm -f ios/Runner.xcodeproj/project.pbxproj.bak
+  # Whole-screen recording on iPhone needs a ReplayKit broadcast upload extension.
+  ruby tool/add_broadcast_extension.rb
 fi
 
 

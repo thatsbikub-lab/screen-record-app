@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:capturenest_recorder/capturenest_recorder.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 
@@ -160,14 +161,22 @@ class _RecorderHomeState extends State<RecorderHome> {
             : 'Recording saved privately on this device.'),
       ));
     } catch (error) {
-      if (mounted) _showError(error);
+      // The native capture is finished either way, so never leave the controls stuck.
+      if (!mounted) return;
+      setState(() {
+        _isRecording = false;
+        _isPaused = false;
+        _elapsed = Duration.zero;
+        _stopwatch = null;
+      });
+      _showError(error);
     }
   }
 
   void _showError(Object error) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(error.toString().replaceFirst('Exception: ', ''))),
+      SnackBar(content: Text(_errorText(error))),
     );
   }
 
@@ -479,7 +488,7 @@ class _RecordingCard extends StatelessWidget {
         await CaptureNestRecorder.saveToGallery(recording.path);
         if (context.mounted) _message(context, 'Saved to your media library.');
       } catch (error) {
-        if (context.mounted) _message(context, error.toString());
+        if (context.mounted) _message(context, _errorText(error));
       }
       return;
     }
@@ -628,7 +637,7 @@ class _TrimPageState extends State<TrimPage> {
         ),
       );
     } catch (error) {
-      if (mounted) _message(context, error.toString());
+      if (mounted) _message(context, _errorText(error));
     } finally {
       if (mounted) setState(() => _exporting = false);
     }
@@ -686,3 +695,8 @@ void _message(BuildContext context, String text) {
 }
 
 
+
+String _errorText(Object error) {
+  if (error is PlatformException) return error.message ?? error.code;
+  return error.toString().replaceFirst('Exception: ', '');
+}

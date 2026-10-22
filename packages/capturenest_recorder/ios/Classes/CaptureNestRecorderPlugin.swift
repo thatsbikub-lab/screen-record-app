@@ -16,6 +16,27 @@ public class CaptureNestRecorderPlugin: NSObject, FlutterPlugin {
   private var useDeviceAudio = false
   private var pendingStop: FlutterResult?
   private var activeExport: AVAssetExportSession?
+  // Paused or backgrounded time is cut out of the file by shifting later timestamps back.
+  private var isSuspended = false
+  private var awaitingResume = false
+  private var timeOffset = CMTime.zero
+  private var lastVideoTime = CMTime.invalid
+  private var lastAudioTime = CMTime.invalid
+
+  override init() {
+    super.init()
+    let center = NotificationCenter.default
+    // iOS stops the hardware encoder in the background, which fails the writer with
+    // "Operation Interrupted". Stop appending while inactive so the file stays valid.
+    center.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: nil) { [weak self] _ in
+      guard let self else { return }
+      self.queue.async { self.isSuspended = true }
+    }
+    center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: nil) { [weak self] _ in
+      guard let self else { return }
+      self.queue.async { self.isSuspended = false }
+    }
+  }
 
   public static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(name: "com.thatsbikublab.capturenest/recorder", binaryMessenger: registrar.messenger())
@@ -33,18 +54,18 @@ public class CaptureNestRecorderPlugin: NSObject, FlutterPlugin {
       start(options: options, result: result)
     case "stop": stop(result: result)
     case "pause":
-      guard recorder.isRecording else {
+      guard writer != nil else {
         result(FlutterError(code: "not_recording", message: "There is no active capture.", details: nil))
         return
       }
-      isPaused = true
+      queue.async { self.isPaused = true }
       result(nil)
     case "resume":
-      guard recorder.isRecording else {
+      guard writer != nil else {
         result(FlutterError(code: "not_recording", message: "There is no active capture.", details: nil))
         return
       }
-      isPaused = false
+      queue.async { self.isPaused = false }
       result(nil)
     case "trim": trim(arguments: call.arguments, result: result)
     case "saveToGallery": saveToGallery(arguments: call.arguments, result: result)
@@ -73,6 +94,10 @@ public class CaptureNestRecorderPlugin: NSObject, FlutterPlugin {
       audioInput = nil
       hasStartedWriter = false
       isPaused = false
+      awaitingResume = false
+      timeOffset = .zero
+      lastVideoTime = .invalid
+      lastAudioTime = .invalid
     } catch {
       result(FlutterError(code: "writer_failed", message: error.localizedDescription, details: nil))
       return
@@ -80,10 +105,8 @@ public class CaptureNestRecorderPlugin: NSObject, FlutterPlugin {
 
     recorder.startCapture(handler: { [weak self] sampleBuffer, sampleType, error in
       guard let self else { return }
-      if let error {
-        self.failCapture(error)
-        return
-      }
+      // Mid-capture errors end the capture; stop() saves whatever was already written.
+      if error != nil { return }
       self.queue.async { self.append(sampleBuffer: sampleBuffer, type: sampleType) }
     }, completionHandler: { error in
       DispatchQueue.main.async {
@@ -98,7 +121,20 @@ public class CaptureNestRecorderPlugin: NSObject, FlutterPlugin {
   }
 
   private func append(sampleBuffer: CMSampleBuffer, type: RPSampleBufferType) {
-    guard !isPaused, CMSampleBufferDataIsReady(sampleBuffer), let writer else { return }
+    guard CMSampleBufferDataIsReady(sampleBuffer), let writer, writer.status != .failed else { return }
+    if isPaused || isSuspended {
+      if hasStartedWriter { awaitingResume = true }
+      return
+    }
+    if awaitingResume {
+      // Resume on a video frame so the gap is measured against the last written frame.
+      guard type == .video else { return }
+      let now = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+      if lastVideoTime.isValid {
+        timeOffset = now - lastVideoTime - CMTime(value: 1, timescale: 30)
+      }
+      awaitingResume = false
+    }
     if type == .video && !hasStartedWriter {
       guard let format = CMSampleBufferGetFormatDescription(sampleBuffer) else { return }
       let dimensions = CMVideoFormatDescriptionGetDimensions(format)
@@ -127,34 +163,78 @@ public class CaptureNestRecorderPlugin: NSObject, FlutterPlugin {
       writer.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
       hasStartedWriter = true
     }
-    guard hasStartedWriter else { return }
+    guard hasStartedWriter, let buffer = retimed(sampleBuffer) else { return }
+    let time = CMSampleBufferGetPresentationTimeStamp(buffer)
     if type == .video, let videoInput, videoInput.isReadyForMoreMediaData {
-      videoInput.append(sampleBuffer)
-    } else if type == .audioMic && useMicrophone, let audioInput, audioInput.isReadyForMoreMediaData {
-      audioInput.append(sampleBuffer)
-    } else if type == .audioApp && !useMicrophone && useDeviceAudio, let audioInput, audioInput.isReadyForMoreMediaData {
-      audioInput.append(sampleBuffer)
+      if lastVideoTime.isValid && time <= lastVideoTime { return }
+      if videoInput.append(buffer) { lastVideoTime = time }
+    } else if (type == .audioMic && useMicrophone) || (type == .audioApp && !useMicrophone && useDeviceAudio),
+              let audioInput, audioInput.isReadyForMoreMediaData {
+      if lastAudioTime.isValid && time <= lastAudioTime { return }
+      if audioInput.append(buffer) { lastAudioTime = time }
     }
   }
 
+  private func retimed(_ buffer: CMSampleBuffer) -> CMSampleBuffer? {
+    guard timeOffset != .zero else { return buffer }
+    var count: CMItemCount = 0
+    CMSampleBufferGetSampleTimingInfoArray(buffer, entryCount: 0, arrayToFill: nil, entriesNeededOut: &count)
+    guard count > 0 else { return nil }
+    var timing = [CMSampleTimingInfo](repeating: CMSampleTimingInfo(), count: count)
+    CMSampleBufferGetSampleTimingInfoArray(buffer, entryCount: count, arrayToFill: &timing, entriesNeededOut: &count)
+    for index in timing.indices {
+      timing[index].presentationTimeStamp = timing[index].presentationTimeStamp - timeOffset
+      if timing[index].decodeTimeStamp.isValid {
+        timing[index].decodeTimeStamp = timing[index].decodeTimeStamp - timeOffset
+      }
+    }
+    var copy: CMSampleBuffer?
+    CMSampleBufferCreateCopyWithNewTiming(
+      allocator: kCFAllocatorDefault,
+      sampleBuffer: buffer,
+      sampleTimingEntryCount: count,
+      sampleTimingArray: &timing,
+      sampleBufferOut: &copy
+    )
+    return copy
+  }
+
   private func stop(result: @escaping FlutterResult) {
-    guard recorder.isRecording else {
+    guard pendingStop == nil else {
+      result(FlutterError(code: "already_stopping", message: "The recording is already being saved.", details: nil))
+      return
+    }
+    guard recorder.isRecording || writer != nil else {
       result(FlutterError(code: "not_recording", message: "There is no active capture.", details: nil))
       return
     }
     pendingStop = result
-    recorder.stopCapture { [weak self] error in
-      guard let self else { return }
-      self.queue.async {
-        self.videoInput?.markAsFinished()
-        self.audioInput?.markAsFinished()
-        guard let writer = self.writer, self.hasStartedWriter, let output = self.outputURL else {
-          DispatchQueue.main.async { self.finishStop(error ?? NSError(domain: "CaptureNest", code: 1, userInfo: [NSLocalizedDescriptionKey: "No video frames were captured."])) }
-          return
+    guard recorder.isRecording else {
+      // ReplayKit ended the capture by itself; still save whatever was written.
+      finalizeWriter()
+      return
+    }
+    recorder.stopCapture { [weak self] _ in
+      // A stop error usually means the capture had already ended; the file decides success.
+      self?.finalizeWriter()
+    }
+  }
+
+  private func finalizeWriter() {
+    queue.async {
+      guard let writer = self.writer, self.hasStartedWriter, writer.status == .writing, let output = self.outputURL else {
+        let message = self.writer?.status == .failed
+          ? "The recording was interrupted and could not be saved."
+          : "No video frames were captured."
+        DispatchQueue.main.async {
+          self.finishStop(NSError(domain: "CaptureNest", code: 1, userInfo: [NSLocalizedDescriptionKey: message]))
         }
-        writer.finishWriting {
-          DispatchQueue.main.async { self.finishStop(error ?? writer.error, output: output) }
-        }
+        return
+      }
+      self.videoInput?.markAsFinished()
+      self.audioInput?.markAsFinished()
+      writer.finishWriting {
+        DispatchQueue.main.async { self.finishStop(writer.error, output: output) }
       }
     }
   }
@@ -170,13 +250,6 @@ public class CaptureNestRecorderPlugin: NSObject, FlutterPlugin {
     let path = output?.path ?? outputURL?.path
     resetWriter(deleteOutput: false)
     callback?(path)
-  }
-
-  private func failCapture(_ error: Error) {
-    DispatchQueue.main.async {
-      guard self.pendingStop != nil else { return }
-      self.finishStop(error)
-    }
   }
 
   private func trim(arguments: Any?, result: @escaping FlutterResult) {
@@ -248,6 +321,10 @@ public class CaptureNestRecorderPlugin: NSObject, FlutterPlugin {
     outputURL = nil
     hasStartedWriter = false
     isPaused = false
+    awaitingResume = false
+    timeOffset = .zero
+    lastVideoTime = .invalid
+    lastAudioTime = .invalid
     if deleteOutput, let output { try? FileManager.default.removeItem(at: output) }
   }
 }

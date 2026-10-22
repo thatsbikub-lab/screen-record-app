@@ -52,7 +52,9 @@ class CaptureService : Service() {
             val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             projection = manager.getMediaProjection(resultCode, resultData)
             projection?.registerCallback(object : MediaProjection.Callback() {
-                override fun onStop() = stopRecording()
+                override fun onStop() {
+                    stopRecording()
+                }
             }, null)
 
             val quality = intent.getStringExtra(EXTRA_QUALITY) ?: "high"

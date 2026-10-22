@@ -67,6 +67,7 @@ public class CaptureNestRecorderPlugin: NSObject, FlutterPlugin {
       }
       queue.async { self.isPaused = false }
       result(nil)
+    case "startFullScreen": showBroadcastPicker(result: result)
     case "trim": trim(arguments: call.arguments, result: result)
     case "saveToGallery": saveToGallery(arguments: call.arguments, result: result)
     default: result(FlutterMethodNotImplemented)
@@ -250,6 +251,39 @@ public class CaptureNestRecorderPlugin: NSObject, FlutterPlugin {
     let path = output?.path ?? outputURL?.path
     resetWriter(deleteOutput: false)
     callback?(path)
+  }
+
+  /// Opens iOS's "Start Broadcast" sheet for the CaptureNestBroadcast extension,
+  /// which records the whole screen (including other apps) and saves to Photos.
+  private func showBroadcastPicker(result: @escaping FlutterResult) {
+    // The extension cannot ask for Photos access itself, so ask here first.
+    PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+      DispatchQueue.main.async {
+        guard status == .authorized || status == .limited else {
+          result(FlutterError(code: "gallery_denied", message: "Allow CaptureNest to add to Photos in Settings so screen recordings can be saved.", details: nil))
+          return
+        }
+        let picker = RPSystemBroadcastPickerView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+        if let bundleId = Bundle.main.bundleIdentifier {
+          picker.preferredExtension = bundleId + ".broadcast"
+        }
+        picker.showsMicrophoneButton = true
+        picker.alpha = 0.01
+        let window = UIApplication.shared.connectedScenes
+          .compactMap { $0 as? UIWindowScene }
+          .flatMap { $0.windows }
+          .first { $0.isKeyWindow }
+        window?.addSubview(picker)
+        guard let button = picker.subviews.compactMap({ $0 as? UIButton }).first else {
+          picker.removeFromSuperview()
+          result(FlutterError(code: "broadcast_unavailable", message: "Screen broadcast is not available on this device.", details: nil))
+          return
+        }
+        button.sendActions(for: .touchUpInside)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { picker.removeFromSuperview() }
+        result(nil)
+      }
+    }
   }
 
   private func trim(arguments: Any?, result: @escaping FlutterResult) {

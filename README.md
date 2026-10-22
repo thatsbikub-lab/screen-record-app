@@ -19,7 +19,7 @@ CaptureNest is a private, no-ad screen recorder for Android and iOS. It is desig
 
 ## Platform notes
 
-The operating systems control capture permission and may prohibit protected/DRM video from appearing in recordings. Android's device-audio capture is available only on Android 10+ when the recorded app permits playback capture. iOS limits capture behavior while the app is backgrounded; a full system Broadcast Upload Extension is the production upgrade path if always-on recording is required. The front-camera preference is passed to ReplayKit on iOS and is presented as a recording option on Android; production camera compositing across third-party apps requires a separate compositor service and is intentionally kept behind the platform capability boundary.
+The operating systems control capture permission and may prohibit protected/DRM video from appearing in recordings. Android's device-audio capture is available only on Android 10+ when the recorded app permits playback capture. On iOS, the record button opens the system "Start Broadcast" sheet for the bundled `CaptureNestBroadcast` upload extension (sources in `ios_broadcast/`, added to the generated runner by `tool/add_broadcast_extension.rb`). It records the whole screen, including other apps, and saves the finished video to Photos. The front-camera preference is passed to ReplayKit on iOS and is presented as a recording option on Android; production camera compositing across third-party apps requires a separate compositor service and is intentionally kept behind the platform capability boundary.
 
 ## Local development
 

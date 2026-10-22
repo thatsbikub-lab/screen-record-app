@@ -19,6 +19,8 @@ jobs:
         with:
           channel: stable
           cache: true
+      - name: Install Xcode project tools
+        run: gem list -i xcodeproj || sudo gem install xcodeproj
       - name: Create iOS runner
         run: bash tool/bootstrap_platforms.sh ios
       - name: Install dependencies
@@ -27,6 +29,7 @@ jobs:
         run: flutter build ios --release --no-codesign
       - name: Package unsigned IPA
         run: |
+          test -d build/ios/iphoneos/Runner.app/PlugIns/CaptureNestBroadcast.appex
           mkdir -p build/ios/ipa/Payload
           cp -R build/ios/iphoneos/Runner.app build/ios/ipa/Payload/
           cd build/ios/ipa
